@@ -1,28 +1,104 @@
 // UK residential property prices — HM Land Registry "Price Paid" data, 1995–2026.
-// A Malloy semantic model over Dot's FoxDB warehouse (db.getdot.ai).
+// A multi-explore Malloy semantic model over Dot's FoxDB warehouse (db.getdot.ai).
+//
+// Three explores share the same warehouse:
+//   • property_sales   — the monthly transaction fact, joined to a calendar and to
+//                        county- and town-level benchmarks (a 3-join explore).
+//   • county_annual    — annual sales rolled up per county.
+//   • town_trends      — per-town yearly average price with precomputed YoY change.
 //
 // The connection is named `foxdb`; Dot injects the warehouse credentials at query
 // time, so no secrets live in this repo. Postgres tables are schema-qualified
 // (`public.<table>`). Columns that collide with Malloy keywords (`month`, `year`,
 // `quarter`, `type`) are referenced with backticks.
 
-source: dim_calendar is foxdb.table('public.dim_calendar') extend {
-  #" Calendar dimension (one row per day). Join the monthly fact on month_start.
-  primary_key: month_start
+source: county_annual is foxdb.table('public.agg_county_annual') extend {
+  #" Annual sales rolled up per county (pre-aggregated).
+
+  dimension:
+    #" Calendar year.
+    sales_year is `year`
+
+  measure:
+    #" Number of property transactions.
+    transaction_count is sum(transactions)
+    #" Total monetary value of sales, GBP.
+    total_sales_value is sum(total_value)
+    #" Value-weighted average sale price, GBP.
+    avg_sale_price is sum(total_value) / sum(transactions)
+    #" New-build transactions.
+    new_build_count is sum(new_build_txns)
+    #" New-build share of all transactions.
+    new_build_share is sum(new_build_txns) / sum(transactions)
+
+  #" Counties ranked by transaction volume.
+  view: by_county is {
+    group_by: county
+    aggregate: transaction_count, avg_sale_price
+    order_by: transaction_count desc
+  }
+  #" Counties with the highest new-build share.
+  view: top_new_build_counties is {
+    group_by: county
+    aggregate: new_build_share, transaction_count
+    having: transaction_count > 10000
+    order_by: new_build_share desc
+    limit: 20
+  }
+  #" Yearly transaction and price trend.
+  view: yearly_trend is {
+    group_by: sales_year
+    aggregate: transaction_count, avg_sale_price
+    order_by: sales_year
+  }
+}
+
+source: town_trends is foxdb.table('public.agg_town_price_index') extend {
+  #" Per-town yearly average price with precomputed year-over-year change.
+
+  dimension:
+    #" Calendar year.
+    price_year is `year`
+
+  measure:
+    #" Transactions in the town-year.
+    transaction_count is sum(transactions)
+    #" Volume-weighted average sale price, GBP.
+    avg_sale_price is sum(avg_price * transactions) / sum(transactions)
+    #" Average year-over-year price change (%), across the towns in scope.
+    avg_yoy_change_pct is avg(yoy_change_pct)
+
+  #" Towns with the fastest year-over-year price growth (meaningful volume only).
+  view: fastest_growing_towns is {
+    group_by: town, price_year
+    aggregate: avg_yoy_change_pct, transaction_count
+    having: transaction_count > 500
+    order_by: avg_yoy_change_pct desc
+    limit: 25
+  }
+  #" Average price trend by year across all towns.
+  view: by_year is {
+    group_by: price_year
+    aggregate: avg_sale_price, transaction_count
+    order_by: price_year
+  }
 }
 
 source: property_sales is foxdb.table('public.fact_monthly_sales') extend {
   #" UK residential property sales, pre-aggregated to month x location x property attributes (~5.5M rows, Jan 1995 - Feb 2026).
 
-  // One calendar row per monthly bucket, so year/quarter are queryable.
-  join_one: calendar is dim_calendar on `month` = calendar.month_start
+  // Compare each slice to its county-year and town-year benchmarks (clean join_one
+  // on unique keys). sale_year is derived from the fact's own date, so the join keys
+  // don't depend on another join.
+  join_one: county_benchmark is county_annual on county = county_benchmark.county and sale_year = county_benchmark.sales_year
+  join_one: town_benchmark is town_trends on town = town_benchmark.town and sale_year = town_benchmark.price_year
 
   //---- Dimensions ----
   dimension:
     #" Calendar year of sale.
-    sale_year is calendar.`year`
+    sale_year is year(`month`)
     #" Calendar quarter (1-4).
-    sale_quarter is calendar.`quarter`
+    sale_quarter is quarter(`month`)
     #" Property type: detached, semi-detached, terraced, flat, or other.
     property_type is `type`
     #" Tenure: freehold, leasehold, or unknown.
@@ -48,32 +124,39 @@ source: property_sales is foxdb.table('public.fact_monthly_sales') extend {
     aggregate: transaction_count, avg_sale_price
     order_by: transaction_count desc
   }
-
   #" Volume and average price by property type.
   view: by_property_type is {
     group_by: property_type
     aggregate: transaction_count, avg_sale_price
     order_by: transaction_count desc
   }
-
   #" Average price and volume per year — the headline house-price trend.
   view: price_trend_by_year is {
     group_by: sale_year
     aggregate: avg_sale_price, transaction_count
     order_by: sale_year
   }
-
   #" New-build vs existing-property volume and price.
   view: new_vs_existing is {
     group_by: is_new_build
     aggregate: transaction_count, avg_sale_price
   }
-
   #" Top 20 towns by transaction volume.
   view: top_towns is {
     group_by: town
     aggregate: transaction_count, avg_sale_price
     order_by: transaction_count desc
     limit: 20
+  }
+  #" Each county's average price next to its county-year benchmark (cross-source join).
+  // The benchmark is read as a scalar dimension through join_one — cheap, and it sidesteps
+  // the symmetric-aggregate path (which can overflow DuckDB's DECIMAL width on big sums).
+  view: vs_county_benchmark is {
+    group_by:
+      county
+      sale_year
+      benchmark_avg_price is county_benchmark.avg_price
+    aggregate: avg_sale_price
+    order_by: sale_year desc, avg_sale_price desc
   }
 }

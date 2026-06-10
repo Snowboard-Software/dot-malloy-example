@@ -14,17 +14,27 @@ natural language; Dot writes the Malloy.
 
 ## The model (`index.malloy`)
 
-Two sources over the `foxdb` connection:
+Three explores over the `foxdb` connection — a fact and two pre-aggregated rollups:
 
-- **`property_sales`** (`public.fact_monthly_sales`) — the central fact.
-  - dimensions: `county`, `district`, `town`, `postcode1`, `property_type`,
-    `tenure`, `is_new_build`, `sale_year`, `sale_quarter`
+- **`property_sales`** (`public.fact_monthly_sales`) — the central transaction fact.
+  - dimensions: `county`, `town`, `district`, `property_type`, `tenure`,
+    `is_new_build`, `sale_year`, `sale_quarter` (year/quarter derived from the
+    fact's own `month` date — no calendar join needed)
   - measures: `transaction_count`, `total_sales_value`, `avg_sale_price`
     (value-weighted), `max_sale_price`
+  - **joins** (`join_one`, unique keys): `county_benchmark` → `county_annual`,
+    `town_benchmark` → `town_trends`, so any slice can be compared to its
+    county-year and town-year benchmark.
   - views: `by_county`, `by_property_type`, `price_trend_by_year`,
-    `new_vs_existing`, `top_towns`
-- **`dim_calendar`** (`public.dim_calendar`) — joined on `month = month_start` for
-  year/quarter.
+    `new_vs_existing`, `top_towns`, `vs_county_benchmark`
+- **`county_annual`** (`public.agg_county_annual`) — annual sales per county.
+  - measures: `transaction_count`, `total_sales_value`, `avg_sale_price`,
+    `new_build_count`, `new_build_share`
+  - views: `by_county`, `top_new_build_counties`, `yearly_trend`
+- **`town_trends`** (`public.agg_town_price_index`) — per-town yearly average price
+  with precomputed year-over-year change.
+  - measures: `transaction_count`, `avg_sale_price`, `avg_yoy_change_pct`
+  - views: `fastest_growing_towns`, `by_year`
 
 ## Running standalone
 
@@ -40,10 +50,8 @@ password = your FoxDB token, `sslmode=require`. Tables are schema-qualified
 ```malloy
 run: property_sales -> by_county
 run: property_sales -> price_trend_by_year
-run: property_sales -> {
-  where: county = 'GREATER LONDON'
-  group_by: sale_year
-  aggregate: avg_sale_price
-  order_by: sale_year desc
-}
+run: property_sales -> vs_county_benchmark + { where: county = 'GREATER LONDON' }
+
+run: county_annual -> top_new_build_counties
+run: town_trends -> fastest_growing_towns
 ```
