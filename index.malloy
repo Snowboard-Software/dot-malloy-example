@@ -1,7 +1,6 @@
 // Sales analytics semantic model — E2E fixture for Dot's Malloy connector.
 // Star schema over the `sales` Postgres schema: orders → order_items → products,
 // orders → customers, plus regional targets from an imported file.
-import "regions.malloy"
 
 source: customers is pg.table('sales.customers') extend {
   primary_key: customer_id

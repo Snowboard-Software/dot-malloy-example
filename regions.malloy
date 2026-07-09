@@ -1,5 +1,0 @@
-// Regional revenue targets — separate file to exercise the multi-file model path.
-source: region_targets is pg.table('sales.region_targets') extend {
-  primary_key: region
-  measure: total_target is sum(target_revenue)
-}
