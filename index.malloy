@@ -22,8 +22,8 @@ source: order_items is pg.table('sales.order_items') extend {
   primary_key: order_item_id
   join_one: products with product_id
   measure:
-    line_revenue is (quantity * unit_price * (1 - discount)).sum()
-    units_sold is quantity.sum()
+    line_revenue is sum(quantity * unit_price * (1 - discount))
+    units_sold is sum(quantity)
 }
 
 source: orders is pg.table('sales.orders') extend {

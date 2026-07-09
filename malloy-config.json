@@ -1,9 +1,8 @@
 {
-  "connections": [
-    {
-      "name": "pg",
-      "dialect": "postgres",
+  "connections": {
+    "pg": {
+      "is": "postgres",
       "connectionString": { "env": "PG_CONNECTION_STRING" }
     }
-  ]
+  }
 }
