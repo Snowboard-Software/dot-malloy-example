@@ -21,6 +21,7 @@ source: products is pg.table('sales.products') extend {
 source: order_items is pg.table('sales.order_items') extend {
   primary_key: order_item_id
   join_one: products with product_id
+  dimension: discount_pct is discount * 100
   measure:
     line_revenue is sum(quantity * unit_price * (1 - discount))
     units_sold is sum(quantity)
@@ -38,7 +39,6 @@ source: orders is pg.table('sales.orders') extend {
   measure:
     order_count is count()
     revenue is order_items.line_revenue
-    units_sold is order_items.units_sold
     distinct_customers is count(customer_id)
 
   view: by_region is {
@@ -51,5 +51,5 @@ source: orders is pg.table('sales.orders') extend {
     group_by: order_month
     aggregate: revenue, order_count
     order_by: order_month asc
-
+  }
 }
