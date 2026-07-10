@@ -52,3 +52,5 @@ source: orders is pg.table('sales.orders') extend {
     order_by: order_month asc
   }
 }
+
+// M3-recovery marker
