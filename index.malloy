@@ -50,5 +50,4 @@ source: orders is pg.table('sales.orders') extend {
     group_by: order_month
     aggregate: revenue, order_count
     order_by: order_month asc
-  }
 }
