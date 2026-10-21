@@ -1,8 +1,9 @@
 {
   "connections": {
-    "foxdb": {
-      "is": "postgres",
-      "connectionString": { "env": "FOXDB_CONNECTION_STRING" }
+    "bigquery": {
+      "is": "bigquery",
+      "projectId": "dot-example",
+      "location": "US"
     }
   }
 }
